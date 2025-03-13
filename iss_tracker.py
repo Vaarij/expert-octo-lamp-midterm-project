@@ -164,7 +164,7 @@ def check_and_update_redis_data():
     
     if len(lsKeys) == 0:
         try:
-            lsNewData = find_data_point(data, "ndm", "oem", "body", "segment", "data", "stateVector")
+            lsNewData = find_data_point(newData, "ndm", "oem", "body", "segment", "data", "stateVector")
             updated_data = convert_to_dict_with_epoch_keys(lsNewData)
             newJSON = json.dumps(updated_data)
             rd.set("k", newJSON)
@@ -176,7 +176,7 @@ def check_and_update_redis_data():
             lsKeysJSON = rd.get("data-in-k")
             lsKeysj = json.loads(lsKeysJSON)
             latestDataKey = lsKeysj[-1][key]
-            lsNewData = find_data_point(data, "ndm", "oem", "body", "segment", "data", "stateVector")
+            lsNewData = find_data_point(newData, "ndm", "oem", "body", "segment", "data", "stateVector")
             for i in range(lsNewData):
                 if lsNewData[i]["EPOCH"] == latestDataKey and (i < (len(lsNewData) - 1)):
                     updated_data = convert_to_dict_with_epoch_keys(lsNewData[i+1:])
@@ -338,16 +338,11 @@ Could not find information on how to strip the datetime formats in the XML datas
 (Note: did not read the FAQS before running this command)
 """
 
-check_and_update_redis_data()
-
 def main():
-    # url = "https://nasa-public-data.s3.amazonaws.com/iss-coords/current/ISS_OEM/ISS.OEM_J2K_EPH.xml"
-    # content = pull_data(url)
-    # data = xmltodict.parse(content)
     check_and_update_redis_data()
 
 
     
 if __name__ == "__main__":
-    # main()
+    main()
     app.run(debug=True, host='0.0.0.0', port=5000)
