@@ -15,6 +15,6 @@ services:
             dockerfile: ./DockerFile
         depends_on:
             - redis-db
-        image: broccolisoup/flask_iss_tracker:1.4
+        image: broccolisoup/flask_iss_tracker:1.5
         ports:
             - 5000:5000

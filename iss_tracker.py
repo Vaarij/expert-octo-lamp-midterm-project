@@ -16,7 +16,7 @@ from astropy.time import Time
 app = Flask(__name__)
 
 def get_redis_client():
-    return redis.Redis(host='127.0.0.1', port=6379, db=0)
+    return redis.Redis(host='redis-db', port=6379, db=0)
 
 rd = get_redis_client()
 geocoder = Nominatim(user_agent='iss_tracker')
@@ -173,7 +173,7 @@ def check_and_update_redis_data():
             logging.error(f'error at adding new data')
     else:
         try:
-            lsKeysJSON = rd.get("data-in-k")
+            lsKeysJSON = rd.get("k")
             lsKeysj = json.loads(lsKeysJSON)
             latestDataKey = lsKeysj[-1][key]
             lsNewData = find_data_point(newData, "ndm", "oem", "body", "segment", "data", "stateVector")
@@ -340,9 +340,9 @@ Could not find information on how to strip the datetime formats in the XML datas
 
 def main():
     check_and_update_redis_data()
+    print("Checked and added data")
 
 
     
 if __name__ == "__main__":
-    main()
     app.run(debug=True, host='0.0.0.0', port=5000)
