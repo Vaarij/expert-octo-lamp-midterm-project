@@ -7,8 +7,19 @@ from typing import Tuple, List
 import math
 from flask import Flask, request
 import json
+import redis
+from geopy.geocoders import Nominatim
+from astropy import coordinates
+from astropy import units
+from astropy.time import Time
 
 app = Flask(__name__)
+
+def get_redis_client():
+    return redis.Redis(host='127.0.0.1', port=6379, db=0)
+
+rd = get_redis_client()
+geocoder = Nominatim(user_agent='iss_tracker')
 
 def pull_data(url: str):
     """
@@ -47,6 +58,8 @@ def read_data_from_xml(filepath: str):
         data = xmltodict.parse(f.read())
         
     return data
+            
+            
 
 """
 Edited with Claude 3.7, needed some guidance on an Attribute error. Input the Attribute Error as a prompt to see if I could get some help in decoding it.
@@ -110,6 +123,69 @@ def instantaneous_speed(x: float, y: float, z: float) -> float:
     """
     return math.sqrt((x**2) + (y**2) + (z**2))
 
+def convert_to_dict_with_epoch_keys(data):
+    """
+    This function takes in some data and converts it into a dict with the epochs as the key that can uploaded into the redis database
+    
+    Args:
+        data (List): some list of data in the format of epoch, x, y, z, xdot, ydot, zdot
+        
+    Returns:
+        a list of json objects with the epochs as keys
+    """
+    retList = []
+    for i in data:
+        tempJson = {i["EPOCH"] : {
+            "X" : i["X"]["#text"],
+            "Y" : i["Y"]["#text"],
+            "Z" : i["Z"]["#text"],
+            "X_DOT" : i["X_DOT"]["#text"],
+            "Y_DOT" : i["Y_DOT"]["#text"],
+            "Z_DOT" : i["Z_DOT"]["#text"]
+        }}
+        retList.append(tempJson)
+        
+    return retList
+
+def check_and_update_redis_data():
+    """
+    The following function attempts to check the redis database for data, and will either update it with the newest data or add the data in
+    
+    Args:
+        None
+    
+    Returns:
+        None
+    """
+
+    lsKeys = rd.keys()
+    
+    newData = pull_data("https://nasa-public-data.s3.amazonaws.com/iss-coords/current/ISS_OEM/ISS.OEM_J2K_EPH.xml")
+    
+    if len(lsKeys) == 0:
+        try:
+            lsNewData = find_data_point(data, "ndm", "oem", "body", "segment", "data", "stateVector")
+            updated_data = convert_to_dict_with_epoch_keys(lsNewData)
+            newJSON = json.dumps(updated_data)
+            rd.set("k", newJSON)
+            return
+        except:
+            logging.error(f'error at adding new data')
+    else:
+        try:
+            lsKeysJSON = rd.get("data-in-k")
+            lsKeysj = json.loads(lsKeysJSON)
+            latestDataKey = lsKeysj[-1][key]
+            lsNewData = find_data_point(data, "ndm", "oem", "body", "segment", "data", "stateVector")
+            for i in range(lsNewData):
+                if lsNewData[i]["EPOCH"] == latestDataKey and (i < (len(lsNewData) - 1)):
+                    updated_data = convert_to_dict_with_epoch_keys(lsNewData[i+1:])
+                    lsKeys.extend(updated_data)
+                    newJSON = json.dumps(lsKeys)
+                    rd.set("k", newJSON)
+                    return
+        except:
+            logging.error(f'error at updating data')
 
 @app.route('/epochs', methods=['GET'])
 def get_all_data():
@@ -122,9 +198,7 @@ def get_all_data():
     Returns:
         A list of all the data
     """
-    url = "https://nasa-public-data.s3.amazonaws.com/iss-coords/current/ISS_OEM/ISS.OEM_J2K_EPH.xml"
-    data = pull_data(url)
-    list_of_data = find_data_point(data, "ndm", "oem", "body", "segment", "data", "stateVector")
+    list_of_data = rd.get('k')
     try:
         limit = int(request.args.get('limit', '100000000000000'))
         offset = int(request.args.get('offset', '0'))
@@ -153,9 +227,7 @@ def get_specific_data(epoch):
         Either a string that identifies that the epoch was not in the dataset
         or a dictionary that represents the datapoint
     """
-    url = "https://nasa-public-data.s3.amazonaws.com/iss-coords/current/ISS_OEM/ISS.OEM_J2K_EPH.xml"
-    data = pull_data(url)
-    list_of_data = find_data_point(data, "ndm", "oem", "body", "segment", "data", "stateVector")
+    list_of_data = rd.get('k')
     for i in list_of_data:
         if i["EPOCH"] == epoch:
             return i 
@@ -173,12 +245,50 @@ def get_specific_data_speed(epoch):
     Returns:
         either a string that documents that the epoch cannot be found, or the int instant speed
     """
-    url = "https://nasa-public-data.s3.amazonaws.com/iss-coords/current/ISS_OEM/ISS.OEM_J2K_EPH.xml"
-    data = pull_data(url)
-    list_of_data = find_data_point(data, "ndm", "oem", "body", "segment", "data", "stateVector")
-    for i in list_of_data:
-        if i["EPOCH"] == epoch:
-            return instantaneous_speed(float(i["X_DOT"]["#text"]), float(i["Y_DOT"]["#text"]), float(i["Z_DOT"]["#text"])) 
+    list_of_data = rd.get('k')
+    for key, value in list_of_data:
+        if key == epoch:
+            return instantaneous_speed(float(value["X_DOT"]), float(value["Y_DOT"]), float(value["Z_DOT"])) 
+    return "error, epoch not found"
+
+def convert_xyz_loc(epoch:str, x:float,y:float,z:float):
+    """
+    This function takes some xyz and converts it to a latitude and longitude
+    
+    Args:
+        epoch (str): the string with the date-time
+        x, y, z (float): the x, y, z, position values
+    
+    Returns:
+        lat, lon, height (floats): the latitude, longitude, height of the iss
+    """
+    
+    this_epoch=time.strftime('%Y-%m-%d %H:%m:%S', time.strptime(epoch[:-5], '%Y-%jT%H:%M:%S'))
+
+    cartrep = coordinates.CartesianRepresentation([x, y, z], unit=units.km)
+    gcrs = coordinates.GCRS(cartrep, obstime=this_epoch)
+    itrs = gcrs.transform_to(coordinates.ITRS(obstime=this_epoch))
+    loc = coordinates.EarthLocation(*itrs.cartesian.xyz)
+    
+    return loc.lat.value, loc.lon.value, loc.height.value
+
+@app.route('/epochs/<epoch>/location', methods=['GET'])
+def get_specific_data_speed(epoch):
+    """
+    This function returns the location at a specific datapoint
+    
+    Args:
+        epoch (str): the epoch as a string
+        
+    Returns:
+        either a string that documents that the epoch cannot be found, or the string location
+    """
+    list_of_data = rd.get('k')
+    for key, value in list_of_data:
+        if key == epoch:
+            lat,lon, height = convert_xyz_loc(key, float(value["X"]), float(value["Y"]), float(value["Z"]))
+            geoloc = geocoder.reverse((lat, lon), zoom=15, language='en')
+            return geoloc 
     return "error, epoch not found"
 
 @app.route('/now', methods=['GET'])
@@ -190,28 +300,32 @@ def get_now_info():
         None
         
     Returns:
-        A dictionary with the stateVectors and the instantaneous speed
+        A dictionary with the stateVectors, the instantaneous speed, and the location
     """
-    url = "https://nasa-public-data.s3.amazonaws.com/iss-coords/current/ISS_OEM/ISS.OEM_J2K_EPH.xml"
-    data = pull_data(url)
-    list_of_data = find_data_point(data, "ndm", "oem", "body", "segment", "data", "stateVector")
+    list_of_data = rd.get("k")
     n = len(list_of_data)
     now = time.mktime(time.gmtime())
     mindisance = -1
     minindex = 0
-    for i in range(n):
-        latestdata = list_of_data[i]
-        currtime = latestdata["EPOCH"]
-        currepochtime = time.mktime(time.strptime(currtime, '%Y-%jT%H:%M:%S.%fZ'))
+    i = 0
+    minepoch = "-1"
+    for key, value in list_of_data:
+        currepochtime = time.mktime(time.strptime(key, '%Y-%jT%H:%M:%S.%fZ'))
         
         if (now - currepochtime) < mindisance:
             minindex = i
+            minepoch = currepochtime
+        
+        i += 1
     
-    latestdatapoint = list_of_data[minindex]
-    inst_speed= instantaneous_speed(float(latestdatapoint["X_DOT"]["#text"]), float(latestdatapoint["Y_DOT"]["#text"]), float(latestdatapoint["Z_DOT"]["#text"]))
+    latestdatapoint = list_of_data[minindex][minepoch]
+    inst_speed= instantaneous_speed(float(latestdatapoint["X_DOT"]), float(latestdatapoint["Y_DOT"]), float(latestdatapoint["Z_DOT"]))
+    lat,lon, height = convert_xyz_loc(key, float(latestdatapoint["X"]), float(latestdatapoint["Y"]), float(latestdatapoint["Z"]))
+    geoloc = geocoder.reverse((lat, lon), zoom=15, language='en')
     ret_dict = {
         "stateVectors": latestdatapoint,
-        "inst_speed": inst_speed
+        "inst_speed": inst_speed,
+        "location" : geoloc
     }
     return ret_dict
 
@@ -223,11 +337,14 @@ prompts:
 Could not find information on how to strip the datetime formats in the XML dataset, so I used Claude to help with that, and ensure I could also add return functions
 (Note: did not read the FAQS before running this command)
 """
-    
+
+check_and_update_redis_data()
+
 def main():
-    url = "https://nasa-public-data.s3.amazonaws.com/iss-coords/current/ISS_OEM/ISS.OEM_J2K_EPH.xml"
-    content = pull_data(url)
-    data = xmltodict.parse(content)
+    # url = "https://nasa-public-data.s3.amazonaws.com/iss-coords/current/ISS_OEM/ISS.OEM_J2K_EPH.xml"
+    # content = pull_data(url)
+    # data = xmltodict.parse(content)
+    check_and_update_redis_data()
 
 
     

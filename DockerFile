@@ -6,6 +6,12 @@ RUN pip3 install requests==2.32.3
 
 RUN pip3 install typing
 
+RUN pip3 install redis
+
+RUN pip3 install astropy
+
+RUN pip3 install geopy
+
 RUN pip3 install logging==0.4.9.6
 
 RUN pip3 install xmltodict
@@ -18,6 +24,6 @@ COPY test_iss_tracker.py /code/test_iss_tracker.py
 
 RUN chmod +rx /code/iss_tracker.py
 
-RUN chmod +rx /code/test_iss_tracker.pys
+RUN chmod +rx /code/test_iss_tracker.py
 
 ENV PATH="/code:$PATH"
