@@ -88,7 +88,7 @@ def find_data_point(data, *keys):
                     current = current[key]
                 else:
                     print(f"Key '{key}' not found in data structure")
-                    return None  # Or handle the missing key differently
+                    return None 
             else:
                 print(f"Expected dictionary, got {type(current).__name__}")
                 return None
@@ -157,35 +157,44 @@ def check_and_update_redis_data():
     Returns:
         None
     """
-
-    lsKeys = rd.keys()
     
-    newData = pull_data("https://nasa-public-data.s3.amazonaws.com/iss-coords/current/ISS_OEM/ISS.OEM_J2K_EPH.xml")
-    
-    if len(lsKeys) == 0:
-        try:
-            lsNewData = find_data_point(newData, "ndm", "oem", "body", "segment", "data", "stateVector")
-            updated_data = convert_to_dict_with_epoch_keys(lsNewData)
-            newJSON = json.dumps(updated_data)
-            rd.set("k", newJSON)
+    try:
+        existing_data = rd.get("k")
+        
+        new_data = pull_data("https://nasa-public-data.s3.amazonaws.com/iss-coords/current/ISS_OEM/ISS.OEM_J2K_EPH.xml")
+        state_vectors = find_data_point(new_data, "ndm", "oem", "body", "segment", "data", "stateVector")
+        
+        if not state_vectors:
+            logging.error("Failed to retrieve state vectors from NASA API")
             return
-        except:
-            logging.error(f'error at adding new data')
-    else:
+            
+        formatted_data = convert_to_dict_with_epoch_keys(state_vectors)
+        
+        if not existing_data:
+            rd.set("k", json.dumps(formatted_data))
+            logging.info("Added initial data to Redis")
+            return
+            
         try:
-            lsKeysJSON = rd.get("k")
-            lsKeysj = json.loads(lsKeysJSON)
-            latestDataKey = lsKeysj[-1][key]
-            lsNewData = find_data_point(newData, "ndm", "oem", "body", "segment", "data", "stateVector")
-            for i in range(lsNewData):
-                if lsNewData[i]["EPOCH"] == latestDataKey and (i < (len(lsNewData) - 1)):
-                    updated_data = convert_to_dict_with_epoch_keys(lsNewData[i+1:])
-                    lsKeys.extend(updated_data)
-                    newJSON = json.dumps(lsKeys)
-                    rd.set("k", newJSON)
+            existing_data_list = json.loads(existing_data)
+            latest_epoch = list(existing_data_list[-1].keys())[0]
+            
+            for i, item in enumerate(state_vectors):
+                if item["EPOCH"] == latest_epoch and (i < len(state_vectors) - 1):
+                    new_entries = convert_to_dict_with_epoch_keys(state_vectors[i+1:])
+                    updated_data = existing_data_list + new_entries
+                    rd.set("k", json.dumps(updated_data))
+                    logging.info(f"Updated Redis with {len(new_entries)} new entries")
                     return
-        except:
-            logging.error(f'error at updating data')
+                    
+            logging.info("No new data to add")
+            
+        except Exception as e:
+            logging.error(f"Error updating data: {str(e)}")
+            rd.set("k", json.dumps(formatted_data))
+            
+    except Exception as e:
+        logging.error(f"Error in check_and_update_redis_data: {str(e)}")
 
 @app.route('/epochs', methods=['GET'])
 def get_all_data():
@@ -198,21 +207,23 @@ def get_all_data():
     Returns:
         A list of all the data
     """
-    list_of_data = rd.get('k')
     try:
-        limit = int(request.args.get('limit', '100000000000000'))
-        offset = int(request.args.get('offset', '0'))
+        data_json = rd.get('k')
+        if not data_json:
+            return "No data found in Redis"
+            
+        list_of_data = json.loads(data_json)
         
-        ret_degree = []
-        if limit > len(list_of_data):
-            limit = len(list_of_data)
+        limit = int(request.args.get('limit', len(list_of_data)))
+        offset = int(request.args.get('offset', 0))
         
-        for i in range(offset, limit):
-            ret_degree.append(list_of_data[i])
+        if offset >= len(list_of_data):
+            return "Offset exceeds data length"
+            
+        end_index = min(offset + limit, len(list_of_data))
+        return json.dumps(list_of_data[offset:end_index])
         
-        return ret_degree
-        
-    except ValueError as e:
+    except Exception as e:
         return str(e)
 
 @app.route('/epochs/<epoch>', methods=['GET'])
@@ -227,11 +238,22 @@ def get_specific_data(epoch):
         Either a string that identifies that the epoch was not in the dataset
         or a dictionary that represents the datapoint
     """
-    list_of_data = rd.get('k')
-    for i in list_of_data:
-        if i["EPOCH"] == epoch:
-            return i 
-    return "error, epoch not found"
+    try:
+        data_json = rd.get('k')
+        if not data_json:
+            return "No data found in Redis"
+            
+        list_of_data = json.loads(data_json)
+        
+        for item in list_of_data:
+            for key, value in item.items():
+                if key == epoch:
+                    return value
+        
+        return "Epoch not found"
+        
+    except Exception as e:
+        return str(e)
 
 
 @app.route('/epochs/<epoch>/speed', methods=['GET'])
@@ -273,7 +295,7 @@ def convert_xyz_loc(epoch:str, x:float,y:float,z:float):
     return loc.lat.value, loc.lon.value, loc.height.value
 
 @app.route('/epochs/<epoch>/location', methods=['GET'])
-def get_specific_data_speed(epoch):
+def get_specific_data_location(epoch):
     """
     This function returns the location at a specific datapoint
     
