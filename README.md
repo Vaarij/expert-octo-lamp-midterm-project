@@ -1,7 +1,8 @@
 # Flask API ISS Dataset Tracking Interpreter
 
 ## Introduction
-This folder is an extension to add a web component to the iss_tracker.py, allowing users to access formatted data from anywhere once the API is running.
+This folder is an extension to add a redis data base allowing for the information to persist. This should allow users to access data before 15 days and perform data collection on the data.
+
 This folder should contain two python files, iss_tracker.py: the file to read and interpret information about the ISS dataset, and test_iss_tracker.py: a file to test the functions in iss_tracker.py. In addition to this, the folder should contain a docker file which builds a container to build a container that contains the required libraries
 
 ## Downloading the data:
@@ -9,17 +10,18 @@ The data should be accessible through the requests folder, which GETS from "http
 
 ### Notes
 Outside of the standard libraries this file needs to import Flask, typing, logging, requests, pytest using:
-```pip3 install --user Flask typing logging requests pytest```
+```pip3 install --user flask requests xmltodict datetime logging astropy geopy pytest redis```
 
 Output from the iss_tracker.py:
-The Flask API can be setup with ```docker run --rm -v $PWD:/data broccolisoup/flask_iss_tracker:1.3 python3 /code/iss_tracker.py``` or, if the Docker won't run, ```flask --app iss_tracker --debug runpy```. 
+The Flask API can be setup with ```docker run --rm -v $PWD:/data broccolisoup/redis_iss_tracker:1.2 python3 /code/iss_tracker.py``` or, if the Docker won't run, ```flask --app iss_tracker --debug runpy```. 
 Output from the iss_tracker will indicate key information about the file, including the time range, which should be 15 days, the start date and end dates of the tracking data, information about the latest recorded timestamp, the average speed from the past 15 days
 
 Accessing specific routes:
 1. "/epochs", "GET". The following function gets all the data points in the Epochs section. The route also allows for limits and offsets. which can be added after /epochs/.
 2. "/epochs/'epoch'", "GET". The following function gets the data for a specific id, which should be in epoch.
 3. "/epochs/'epoch'/speed", "GET". This function gets the instant speed at a specific id.
-4. "/now", "GET". The function gets the latest data point, including the time and the instantaneous speed.
+4. "/epochs/'epoch'/location, "GET". This function returns the location using geopy to find where the ISS was at that epoch.
+5. "/now", "GET". The function gets the latest data point, including the time and the instantaneous speed.
 
 The user can access this data by running the following command, it is good practice to run this in another terminal. 
 
@@ -27,8 +29,8 @@ The user can access this data by running the following command, it is good pract
 
 
 ### Building the DockerFile:
-The docker image can be built with the command: ```docker run --rm -v $PWD:/data broccolisoup/flask_iss_tracker:1.3 python3 /code/iss_tracker.py```
-To rebuild the docker image, we can use the commnd ```docker build -t broccolisoup/flask_iss_tracker:1.3 -f DockerFile-gen ./```
+The docker image can be built with the command: ```docker run --rm -v $PWD:/data broccolisoup/redis_iss_tracker:1.2 python3 /code/iss_tracker.py```
+To rebuild the docker image, we can use the commnd ```docker build -t broccolisoup/redis_iss_tracker:1.2 -f DockerFile ./```
 
 ### Note on AI within the project:
 The following parts within the project was written with Claude 3.5:
@@ -36,4 +38,5 @@ The following parts within the project was written with Claude 3.5:
 - The find data point was also edited using Claude 3.7, which was able to identify more errors that can be raised. 
 
 ### Additional Information
-No tests were written for the read_data_from_xml(), as it is a rudimentary file written as a fail-safe without too much.
+1. No tests were written for the read_data_from_xml(), as it is a rudimentary file written as a fail-safe without too much.
+2. No tests were written for the redis functions. They are pretty similar to the flask tests, and should run.

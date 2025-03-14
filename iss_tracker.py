@@ -81,7 +81,7 @@ def find_data_point(data, *keys):
     try:
         for key in keys:
             if isinstance(current, bytes):
-                current = json.loads(current.decode('utf-8'))
+                current = json.loads(current)
             
             if isinstance(current, dict):
                 if key in current:
@@ -208,7 +208,7 @@ def get_all_data():
         A list of all the data
     """
     try:
-        data_json = rd.get('k').decode('utf-8')
+        data_json = rd.get('k')
         if not data_json:
             return "No data found in Redis"
             
@@ -239,7 +239,7 @@ def get_specific_data(epoch):
         or a dictionary that represents the datapoint
     """
     try:
-        data_json = rd.get('k').decode('utf-8')
+        data_json = rd.get('k')
         if not data_json:
             return "No data found in Redis"
             
@@ -267,7 +267,7 @@ def get_specific_data_speed(epoch):
     Returns:
         either a string that documents that the epoch cannot be found, or the int instant speed
     """
-    list_of_data = json.loads(rd.get('k').decode('utf-8'))
+    list_of_data = json.loads(rd.get('k'))
     for key, value in list_of_data:
         if key == epoch:
             return instantaneous_speed(float(value["X_DOT"]), float(value["Y_DOT"]), float(value["Z_DOT"])) 
@@ -305,7 +305,7 @@ def get_specific_data_location(epoch):
     Returns:
         either a string that documents that the epoch cannot be found, or the string location
     """
-    list_of_data = json.loads(rd.get('k').decode('utf-8'))
+    list_of_data = json.loads(rd.get('k'))
     for key, value in list_of_data:
         if key == epoch:
             lat,lon, height = convert_xyz_loc(key, float(value["X"]), float(value["Y"]), float(value["Z"]))
@@ -313,50 +313,50 @@ def get_specific_data_location(epoch):
             return geoloc 
     return "error, epoch not found"
 
-# @app.route('/now', methods=['GET'])
-# def get_now_info():
-#     """
-#     This function returns the datapoint latest to the current time point
+@app.route('/now', methods=['GET'])
+def get_now_info():
+    """
+    This function returns the datapoint latest to the current time point
     
-#     Args:
-#         None
+    Args:
+        None
         
-#     Returns:
-#         A dictionary with the stateVectors, the instantaneous speed, and the location
-#     """
-#     list_of_data = json.loads(rd.get("k").decode('utf-8'))
-#     n = len(list_of_data)
-#     now = time.mktime(time.gmtime())
-#     current_time = time.time()
-#     closest_diff = float("inf")
-#     closest_epoch = None
-#     closest_state_data = None
+    Returns:
+        A dictionary with the stateVectors, the instantaneous speed, and the location
+    """
+    list_of_data = json.loads(rd.get("k"))
+    n = len(list_of_data)
+    now = time.mktime(time.gmtime())
+    current_time = time.time()
+    closest_diff = float("inf")
+    closest_epoch = None
+    closest_state_data = None
 
-#     for item in list_of_data:
-#         for epoch_str, state_data in item.items():
-#             try:
-#                 dt = datetime.strptime(epoch_str, '%Y-%jT%H:%M:%S.%fZ')
-#             except ValueError:
-#                 dt = datetime.strptime(epoch_str, '%Y-%jT%H:%M:%SZ')
+    for item in list_of_data:
+        for epoch_str, state_data in item.items():
+            try:
+                dt = datetime.strptime(epoch_str, '%Y-%jT%H:%M:%S.%fZ')
+            except ValueError:
+                dt = datetime.strptime(epoch_str, '%Y-%jT%H:%M:%SZ')
             
-#             epoch_timestamp = dt.timestamp()
+            epoch_timestamp = dt.timestamp()
 
-#             diff = abs(current_time - epoch_timestamp)
-#             if diff < closest_diff:
-#                 closest_diff = diff
-#                 closest_epoch = epoch_str
-#                 closest_state_data = state_data
+            diff = abs(current_time - epoch_timestamp)
+            if diff < closest_diff:
+                closest_diff = diff
+                closest_epoch = epoch_str
+                closest_state_data = state_data
     
-#     latestdatapoint = list_of_data[minindex][closest_epoch]
-#     inst_speed= instantaneous_speed(float(latestdatapoint["X_DOT"]), float(latestdatapoint["Y_DOT"]), float(latestdatapoint["Z_DOT"]))
-#     lat,lon, height = convert_xyz_loc(key, float(latestdatapoint["X"]), float(latestdatapoint["Y"]), float(latestdatapoint["Z"]))
-#     geoloc = geocoder.reverse((lat, lon), zoom=15, language='en')
-#     ret_dict = {
-#         "stateVectors": latestdatapoint,
-#         "inst_speed": inst_speed,
-#         "location" : geoloc
-#     }
-#     return ret_dict
+    latestdatapoint = list_of_data[closest_epoch]
+    inst_speed= instantaneous_speed(float(latestdatapoint["X_DOT"]), float(latestdatapoint["Y_DOT"]), float(latestdatapoint["Z_DOT"]))
+    lat,lon, height = convert_xyz_loc(key, float(latestdatapoint["X"]), float(latestdatapoint["Y"]), float(latestdatapoint["Z"]))
+    geoloc = geocoder.reverse((lat, lon), zoom=15, language='en')
+    ret_dict = {
+        "stateVectors": latestdatapoint,
+        "inst_speed": inst_speed,
+        "location" : geoloc
+    }
+    return ret_dict
 
 """
 Used Claude 3.5 to get the datetime strip function

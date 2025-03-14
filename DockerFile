@@ -10,7 +10,7 @@ COPY iss_tracker.py /code/iss_tracker.py
 
 COPY test_iss_tracker.py /code/test_iss_tracker.py
 
-RUN chomod +x /code/iss_tracker.py
+RUN chmod +x /code/iss_tracker.py
 
 EXPOSE 5000
 
