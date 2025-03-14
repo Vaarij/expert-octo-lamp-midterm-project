@@ -1,29 +1,17 @@
 FROM python:3.12
 
-RUN pip3 install pytest==8.3.4
+WORKDIR /code
 
-RUN pip3 install requests==2.32.3
+COPY requirements.txt requirements.txt
 
-RUN pip3 install typing
-
-RUN pip3 install redis
-
-RUN pip3 install astropy
-
-RUN pip3 install geopy
-
-RUN pip3 install logging==0.4.9.6
-
-RUN pip3 install xmltodict
-
-RUN pip3 install flask
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 COPY iss_tracker.py /code/iss_tracker.py
 
 COPY test_iss_tracker.py /code/test_iss_tracker.py
 
-RUN chmod +rx /code/iss_tracker.py
+RUN chomod +x /code/iss_tracker.py
 
-RUN chmod +rx /code/test_iss_tracker.py
+EXPOSE 5000
 
-ENV PATH="/code:$PATH"
+CMD ["python", "iss_tracker.py"]
