@@ -18,5 +18,3 @@ services:
         image: broccolisoup/flask_iss_tracker:1.5
         ports:
             - 5000:5000
-        restart:
-            always

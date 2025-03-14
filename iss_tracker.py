@@ -42,7 +42,7 @@ def pull_data(url: str):
         logging.error(f"Error, request failed with status code {response.status_code}")
         raise ValueError()
     
-def read_data_from_xml(filepath: str):
+def read_data_from_xml(filename: str):
     """
     This function is a fail-safe in case the user cannot import the data through requests
     
@@ -208,7 +208,7 @@ def get_all_data():
         A list of all the data
     """
     try:
-        data_json = rd.get('k')
+        data_json = rd.get('k').decode('utf-8')
         if not data_json:
             return "No data found in Redis"
             
@@ -239,7 +239,7 @@ def get_specific_data(epoch):
         or a dictionary that represents the datapoint
     """
     try:
-        data_json = rd.get('k')
+        data_json = rd.get('k').decode('utf-8')
         if not data_json:
             return "No data found in Redis"
             
@@ -267,7 +267,7 @@ def get_specific_data_speed(epoch):
     Returns:
         either a string that documents that the epoch cannot be found, or the int instant speed
     """
-    list_of_data = rd.get('k')
+    list_of_data = json.loads(rd.get('k').decode('utf-8'))
     for key, value in list_of_data:
         if key == epoch:
             return instantaneous_speed(float(value["X_DOT"]), float(value["Y_DOT"]), float(value["Z_DOT"])) 
@@ -285,7 +285,7 @@ def convert_xyz_loc(epoch:str, x:float,y:float,z:float):
         lat, lon, height (floats): the latitude, longitude, height of the iss
     """
     
-    this_epoch=time.strftime('%Y-%m-%d %H:%m:%S', time.strptime(epoch[:-5], '%Y-%jT%H:%M:%S'))
+    this_epoch=time.strftime('%Y-%m-%d %H:%M:%S', time.strptime(epoch[:-5], '%Y-%jT%H:%M:%S'))
 
     cartrep = coordinates.CartesianRepresentation([x, y, z], unit=units.km)
     gcrs = coordinates.GCRS(cartrep, obstime=this_epoch)
@@ -305,7 +305,7 @@ def get_specific_data_location(epoch):
     Returns:
         either a string that documents that the epoch cannot be found, or the string location
     """
-    list_of_data = rd.get('k')
+    list_of_data = json.loads(rd.get('k').decode('utf-8'))
     for key, value in list_of_data:
         if key == epoch:
             lat,lon, height = convert_xyz_loc(key, float(value["X"]), float(value["Y"]), float(value["Z"]))
@@ -313,8 +313,8 @@ def get_specific_data_location(epoch):
             return geoloc 
     return "error, epoch not found"
 
-@app.route('/now', methods=['GET'])
-def get_now_info():
+# @app.route('/now', methods=['GET'])
+# def get_now_info():
     """
     This function returns the datapoint latest to the current time point
     
@@ -324,23 +324,30 @@ def get_now_info():
     Returns:
         A dictionary with the stateVectors, the instantaneous speed, and the location
     """
-    list_of_data = rd.get("k")
+    list_of_data = json.loads(rd.get("k").decode('utf-8'))
     n = len(list_of_data)
     now = time.mktime(time.gmtime())
-    mindisance = -1
-    minindex = 0
-    i = 0
-    minepoch = "-1"
-    for key, value in list_of_data:
-        currepochtime = time.mktime(time.strptime(key, '%Y-%jT%H:%M:%S.%fZ'))
-        
-        if (now - currepochtime) < mindisance:
-            minindex = i
-            minepoch = currepochtime
-        
-        i += 1
+    current_time = time.time()
+    closest_diff = float("inf")
+    closest_epoch = None
+    closest_state_data = None
+
+    for item in list_of_data:
+        for epoch_str, state_data in item.items():
+            try:
+                dt = datetime.strptime(epoch_str, '%Y-%jT%H:%M:%S.%fZ')
+            except ValueError:
+                dt = datetime.strptime(epoch_str, '%Y-%jT%H:%M:%SZ')
+            
+            epoch_timestamp = dt.timestamp()
+
+            diff = abs(current_time - epoch_timestamp)
+            if diff < closest_diff:
+                closest_diff = diff
+                closest_epoch = epoch_str
+                closest_state_data = state_data
     
-    latestdatapoint = list_of_data[minindex][minepoch]
+    latestdatapoint = list_of_data[minindex][closest_epoch]
     inst_speed= instantaneous_speed(float(latestdatapoint["X_DOT"]), float(latestdatapoint["Y_DOT"]), float(latestdatapoint["Z_DOT"]))
     lat,lon, height = convert_xyz_loc(key, float(latestdatapoint["X"]), float(latestdatapoint["Y"]), float(latestdatapoint["Z"]))
     geoloc = geocoder.reverse((lat, lon), zoom=15, language='en')
